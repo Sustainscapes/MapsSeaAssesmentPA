@@ -120,12 +120,13 @@ Final should map should have Protected areas, requires individual assessment, in
 * insufficient legal protection (PSbinary substract Protecta and individual assesment, and then find which of this is not trawlfri, no active fishing)
 * active fishing with no trawl
 
-# Fixing Protetionc schemes
+# Updating Protection Schemes
+
+To ensure the accuracy of our dataset, we incorporated recent updates to two protection schemes: Havstrategi and Natura 2000. Specifically, we added the Oeresund region to the Havstrategi omrade and included new designated areas in the Natura 2000 layer.
 
 ## Adding Oersund to Havstrategi omrade
 
-We had to add Oersund to Havstrategi omrade for this dataset
-
+In this update, the Øresund region was added to the Havstrategi omrade, reflecting the latest boundaries for marine strategy areas.
 
 ```{r fixHavstrategi}
 Havstrategi <- terra::rast("Data/havstrategistandard_denmark_sea.tif") |> as.polygons() |> terra::disagg()
@@ -136,7 +137,47 @@ TotalHavstrategi <- terra::union(Havstrategi, Oeresund)
 
 ```
 
+In the code above:
 
+* Havstrategi: Loads the existing marine strategy areas.
+* Oeresund: Loads and reprojects the Øresund region to align with the Havstrategi layer.
+* TotalHavstrategi: Combines the two areas into a single layer, reflecting the full, updated marine strategy zone.
+
+This process ensures that Oeresund is fully integrated into the Havstrategi omrade for subsequent analyses.
+
+## Adding New Natura 2000 area
+
+To keep the Natura 2000 layer up-to-date, we also incorporated a newly designated Natura 2000 area located in the Tyske Bugt region. This addition aligns our dataset with the latest conservation boundaries.
+
+```{r TotalN2000}
+# Load the existing Natura 2000 reserves
+N2000_reserves <- protection_schemes["Natura2000"]
+
+# Convert the Natura 2000 raster to polygons for editing and disaggregate
+N2000_reserves_sf <- N2000_reserves |> 
+  as.polygons() |> 
+  terra::disagg()
+
+# Load and reproject the new Natura 2000 area in Tyske Bugt to match the existing reserves
+AddToN2000 <- terra::vect("O:/Nat_BDR-data/Arealanalyse/2023/RAW/Fuglebeskyttelsesområde_i_Tyske_Bugt/Fuglebeskyttelsesområde_i_Tyske_Bugt.shp") |> 
+  terra::project(terra::crs(N2000_reserves_sf))
+
+# Combine the existing Natura 2000 reserves with the new Tyske Bugt area
+TotalN2000 <- terra::union(N2000_reserves_sf, AddToN2000)
+
+```
+
+### Explanation of Steps
+
+* N2000_reserves: Loads the current Natura 2000 raster layer from protection_schemes.
+
+* N2000_reserves_sf: Converts the Natura 2000 raster to a polygon format for merging and disaggregates any connected areas for more precise boundary handling.
+
+* AddToN2000: Loads the new Natura 2000 area in Tyske Bugt, reprojecting it to ensure alignment with the existing Natura 2000 layer.
+
+* TotalN2000: Combines the updated Natura 2000 polygons with the new addition in Tyske Bugt, resulting in an expanded Natura 2000 layer.
+
+This update ensures that the Natura 2000 layer reflects all recent additions and is fully prepared for subsequent spatial analyses.
 
 ## Build ps binary
 
@@ -150,13 +191,6 @@ PSbinary <- SeaTemplate
 # natura2000 add new bird area
 #
 
-N2000_iucn_reserves <- terra::rast("O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_Natura2000_Croped_Sea.tif")
-
-N2000_iucn_reserves_sf <- N2000_iucn_reserves |> as.polygons() |> terra::disagg()
-
-AddToN2000 <- terra::vect("O:/Nat_BDR-data/Arealanalyse/2023/RAW/Fuglebeskyttelsesområde_i_Tyske_Bugt/Fuglebeskyttelsesområde_i_Tyske_Bugt.shp") |> terra::project(terra::crs(N2000_iucn_reserves_sf))
-
-TotalN2000 <- terra::union(N2000_iucn_reserves_sf, AddToN2000)
 
 
 N2000_havstrategi <- terra::union(TotalHavstrategi, TotalN2000)
