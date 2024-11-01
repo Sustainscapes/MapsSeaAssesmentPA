@@ -1,0 +1,8 @@
+<PAMDataset>
+  <PAMRasterBand band="1">
+    <Description>Natura2000</Description>
+    <CategoryNames>
+      <Category>Yes</Category>
+    </CategoryNames>
+  </PAMRasterBand>
+</PAMDataset>
