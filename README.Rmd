@@ -1,112 +1,152 @@
 ---
-title: "BDR1"
+title: "BDR Analysis for Sea Area Protection"
 output: github_document
 ---
+
+This repository provides a geospatial analysis of protection schemes within the Danish Exclusive Economic Zone. The analysis integrates various protection scheme layers, assesses trawling and fishing impacts, and classifies areas based on protection status and legal requirements.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Protection schemes
+##  Load Required Libraries
+
+First we load the required packages
 
 ```{r loadPackages}
 library(terra)
 library(ggplot2)
 library(tidyterra)
+library(purrr)
+library(magrittr)
 ```
+
+
+## Load Protection Schemes
+
+The main protection schemes are loaded and combined into a single raster stack, including:
+
+* Natura 2000 areas
+* Marine strategy areas (Havstrategi)
+* Wildlife reserves
+* IUCN-registered protected areas
+
 
 Read the protection schemes
 
-```{r Protetioncschemes}
-All <- c("O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_Natura2000_Croped_Sea.tif", 
-            "O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_Havstrategistandard_Croped_Sea.tif", 
-            "O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_vildtreservater_Croped_Sea.tif",
-            "O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_Fredninger_Croped_Sea.tif") |> 
+```{r ReadProtetioncschemes}
+protection_schemes <- c("Data/natura2000_denmark_sea.tif", 
+            "Data/havstrategistandard_denmark_sea.tif", 
+            "Data/vildtreservater_denmark_sea.tif",
+            "Data/IUCN_fredninger_denmark_sea.tif") |> 
   purrr::map(terra::rast) |> 
   purrr::reduce(c) |> 
   magrittr::set_names(c("Natura2000","Havstrategi_standard", "vildtreservater", "IUCN_Fredninger"))
 ```
 
 
-We also need the exlucsive economic zone
+## Define Denmark's Exclusive Economic Zone (EEZ) Boundary and Area
+
+The EEZ boundary of Denmark is loaded and its area calculated in square kilometers. This boundary is used to standardize the study area.
 
 ```{r eez}
-SeaOfDenmark <- terra::vect("O:/Nat_BDR-data/Arealanalyse/CLEAN/SeaOfDenmarkBorder/EEZ.shp")
-TemplateSea <- terra::rast("O:/Nat_BDR-data/Arealanalyse/CLEAN/SeaOfDenmarkBorder/TemplateSea.tif")
+# Load Denmark's EEZ boundary
+DenmarkEEZBoundary <- terra::vect("Data/EEZ.shp")
 
-values(TemplateSea) <- 0
+# Calculate the total area of the EEZ in square kilometers
+Area_DK_KM_Sea <- terra::expanse(DenmarkEEZBoundary, unit = "km")
+```
 
-TemplateSea <- TemplateSea |> terra::mask(SeaOfDenmark, inverse = F)
+## Define the Sea Template and Mask with EEZ Boundary
 
-Area_DK_HA_Sea <- terra::expanse(SeaOfDenmark, unit = "km")
+We create a sea template raster, masking it to the Denmark EEZ boundary. This template will serve as a reference for subsequent spatial operations.
+
+```{r SeaTemplate}
+# Load and initialize sea template raster
+SeaTemplate <- terra::rast("Data/sea_template.tif")
+values(SeaTemplate) <- 0
+
+# Apply mask using the EEZ boundary to standardize the study area
+SeaTemplate <- SeaTemplate |> terra::mask(DenmarkEEZBoundary, inverse = FALSE)
+
+```
+
+## read in Protected areas
+
+We read in areas that are considered to be protected
+
+```{r ProtectedAreas}
+protected_areas_sea <- terra::rast("Data/protected_areas_sea.tif")
+```
+
+## read in Fishing and Trawling Status
+
+In addition to protected areas, we also have a layer representing the fishing and trawling status in different zones of the Danish EEZ. This fishing_trawling_status layer categorizes areas based on whether active fishing is permitted and whether trawling is allowed. Here are the categories in this layer:
+
+* No active Fishing / Trawling Allowed: No active fishing occurs, but trawling is legally permitted.
+* Active Fishing / Trawling Allowed: Active fishing ocurrs and trawling is legally permitted.
+* No active Fishing / Trawling Prohibited: No active fishing, and trawling is legally prohibited.
+* Active Fishing / Trawling Prohibited: Active fishing occurs, but trawling is legally prohibited.
+
+These categories allow us to understand both the legal and active status of fishing and trawling activities within the EEZ, which is crucial for identifying areas under different management regulations.
+
+```{r fishing_trawling_status}
+fishing_trawling_status <- terra::rast("Data/fishing_trawling_status.tif")
+
+fishing_trawling_numeric <- as.numeric(fishing_trawling_status)
 ```
 
 
 
-# Combination 1
+We visualize the fishing_trawling_status layer to get an overview of where active fishing and trawling are permitted or restricted within the study area. Each color in the map represents one of the four categories defined above.
 
-This is existing protection schemes
-
-```{r ProtectionSchemesBin}
-Combined1 <- terra::rast("o:/Nat_Sustain-proj/_user/derekCorcoran_au687614/biodiversitetsradet.github.io/sea_area_analyses/Combined1.tif")
+```{r plotfishing, echo = F}
+ggplot() + 
+  geom_spatraster(data = fishing_trawling_status) + 
+  theme_bw() +
+  labs(
+    title = "Fishing and Trawling Status in Danish EEZ",
+    subtitle = "Classification of areas based on fishing and trawling permissions"
+  )
 ```
-
-
-# Combination 2
-
-## Trawl free zone
-
-All trawl free zone
-
-```{r}
-TrawlFree <- terra::rast("o:/Nat_Sustain-proj/_user/derekCorcoran_au687614/biodiversitetsradet.github.io/sea_area_analyses/Trawlfri.tif")
-```
-
-Combination 2 is both trawlfree zones and natura 2000 reefs in one map
-
-```{r}
-Combination2 <- terra::rast("o:/Nat_Sustain-proj/_user/derekCorcoran_au687614/biodiversitetsradet.github.io/sea_area_analyses/Combined2.tif")
-``` 
-
-Now from all this and overlaps of combination 1 and 2 we get the protected areas which are:
-
-```{r}
-PA <- terra::rast("o:/Nat_Sustain-proj/_user/derekCorcoran_au687614/biodiversitetsradet.github.io/sea_area_analyses/Overlap.tif")
-```
-
-We also have this layer about fishing and trawling, when we make this a numeric variable, we care about level 1, which is not in the trawlfri area but there is no active fishing in it (bottom trawl)
-
-```{r}
-FishingTrawling <- terra::rast("o:/Nat_Sustain-proj/_proj/Coastal sequence/FishingTrawling.tif")  |> as.numeric()
-```
-
 
 
 ## Goal
 
-Final should map should have Protected areas, requires individual assesment, insufficient legal protection, active fishing with bottom trawl, no protection.
+Final should map should have Protected areas, requires individual assessment, insufficient legal protection, active fishing with bottom trawl, no protection.
 
 * Protected areas are PA
-* require individual assesment is only fredninger
+* require individual assessment is only IUCN fredninger
 * insufficient legal protection (PSbinary substract Protecta and individual assesment, and then find which of this is not trawlfri, no active fishing)
 * active fishing with no trawl
+
+# Fixing Protetionc schemes
+
+## Adding Oersund to Havstrategi omrade
+
+We had to add Oersund to Havstrategi omrade for this dataset
+
+
+```{r fixHavstrategi}
+Havstrategi <- terra::rast("Data/havstrategistandard_denmark_sea.tif") |> as.polygons() |> terra::disagg()
+
+Oeresund <- terra::vect("Data/Eksisterende_beskyttet_område_i_¥resund.shp") |> terra::project(Havstrategi)
+
+TotalHavstrategi <- terra::union(Havstrategi, Oeresund)
+
+```
+
+
 
 ## Build ps binary
 
 Build binary protection schemes
 
-```{r PSBinary}
-PSbinary <- TemplateSea
+```{r PSBinary, eval=FALSE}
+PSbinary <- SeaTemplate
 
 # havstrategi add Oeresund
 
-
-Havstrategi <- terra::rast("O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_Havstrategistandard_Croped_Sea.tif") |> as.polygons() |> terra::disagg()
-
-Oeresund <- terra::vect("O:/Nat_BDR-data/Arealanalyse/2024/SeaExis/Eksisterende_beskyttet_område_i_¥resund.shp") |> terra::project(Havstrategi)
-
-TotalHavstrategi <- terra::union(Havstrategi, Oeresund)
-  
 # natura2000 add new bird area
 #
 
@@ -124,7 +164,7 @@ N2000_havstrategi <- terra::union(TotalHavstrategi, TotalN2000)
 
 ## Add Wildife reserves and IUCN fredninger
 
-Reserves <- All[[3]] |> 
+Reserves <- protection_schemes[[3]] |> 
   as.polygons() |> 
   terra::disagg()
 
@@ -132,7 +172,7 @@ Reserves <- Reserves |> terra::project(terra::crs(N2000_iucn_reserves_sf))
 
 N2000_havstrategi_reserves <- terra::union(N2000_havstrategi, Reserves)
 
-IUCN <- All[[4]] |> 
+IUCN <- protection_schemes[[4]] |> 
   as.polygons() |> 
   terra::disagg()
 
@@ -150,14 +190,14 @@ SpeciesPoolR::write_cog(RasterizedPS, "PSbinary.tif")
 
 ### First we add protected areas
 
-```{r PA}
+```{r PA, eval=FALSE}
 Categories <- TemplateSea
 Categories <- terra::ifel(PA == 1, 1, TemplateSea)
 ```
 
 Then we add areas that are fished
 
-```{r}
+```{r, eval=FALSE}
 PSbinary <- terra::rast("PSbinary.tif")
 Categories <- terra::ifel(Categories == 0 & FishingTrawling %in% c(2,3) & PSbinary == 1, 4, Categories)
 ```
@@ -168,7 +208,7 @@ Then we add requires individual assesment (check if there is trawlin here)
 
 RIA = IUCN - ActiveTrawling
 
-```{r RIA}
+```{r RIA, eval=FALSE}
 IUCN <- terra::rast("O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_Fredninger_Croped_Sea.tif") |> as.numeric()
 
 Categories <- terra::ifel(Categories == 0 & IUCN == 0, 2, Categories)
@@ -178,7 +218,7 @@ After that we include insufficient legal protection
 
 ILP = Protection Schemes - PA - RIA - AciveFishingArea
 
-```{r}
+```{r, eval=FALSE}
 
 Categories <- terra::ifel(PSbinary == 1 & Categories == 0, 3, Categories)
 ```
@@ -186,7 +226,7 @@ Categories <- terra::ifel(PSbinary == 1 & Categories == 0, 3, Categories)
 
 Areas
 
-```{r}
+```{r, eval=FALSE}
 Areas <- terra::freq(Categories2)
 
 Areas2 <- Areas |> 
@@ -195,7 +235,7 @@ Areas2 <- Areas |>
 ```
 
 
-```{r}
+```{r, eval=FALSE}
 LVLS <- data.frame(Level = c(0:3), Category = c("Other", "Protected", "Requires individual assesment", "insufficient legal protection"))
 
 Categories2 <- Categories
@@ -205,7 +245,7 @@ SpeciesPoolR::write_cog(Categories2, "FourCats.tif")
 
 ## Final category
 
-```{r}
+```{r, eval=FALSE}
 Categories <- terra::rast("FourCats.tif") |> 
   as.numeric()
 
