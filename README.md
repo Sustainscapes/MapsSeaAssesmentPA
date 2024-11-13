@@ -275,15 +275,19 @@ Categories <- terra::ifel(PSbinary == 1 & Categories == 0, 3, Categories)
 ## Final category
 
 ``` r
-Categories <- terra::rast("FourCats.tif") |> 
-  as.numeric()
-
 LVLS <- data.frame(Level = c(0:4), Category = c("Other", "Protected", "Requires individual assesment", "insufficient legal protection", "Active fishing"))
 
 Categories2 <- Categories
 levels(Categories2) <- LVLS
 SpeciesPoolR::write_cog(Categories2, "SeaAllCats.tif")
 ```
+
+``` r
+Categories2 <- terra::rast("SeaAllCats.tif")
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatraster(data = Categories2, maxcell = 2000000) + scale_fill_discrete(na.translate = F)
+```
+
+![](README_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
 
 Areas
 
