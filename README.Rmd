@@ -6,7 +6,7 @@ output: github_document
 This repository provides a geospatial analysis of protection schemes within the Danish Exclusive Economic Zone. The analysis integrates various protection scheme layers, assesses trawling and fishing impacts, and classifies areas based on protection status and legal requirements.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F, error = F)
 ```
 
 ##  Load Required Libraries
@@ -183,7 +183,7 @@ This update ensures that the Natura 2000 layer reflects all recent additions and
 
 Build binary protection schemes
 
-```{r PSBinary, eval=FALSE}
+```{r PSBinary, eval=F}
 PSbinary <- SeaTemplate
 
 # havstrategi add Oeresund
@@ -202,7 +202,9 @@ Reserves <- protection_schemes[[3]] |>
   as.polygons() |> 
   terra::disagg()
 
-Reserves <- Reserves |> terra::project(terra::crs(N2000_iucn_reserves_sf))
+Reserves <- Reserves |> terra::project(terra::crs(N2000_havstrategi))
+
+writeVector(Reserves, "Reserves.shp", overwrite = T)
 
 N2000_havstrategi_reserves <- terra::union(N2000_havstrategi, Reserves)
 
@@ -210,7 +212,7 @@ IUCN <- protection_schemes[[4]] |>
   as.polygons() |> 
   terra::disagg()
 
-IUCN <- IUCN |> terra::project(terra::crs(N2000_iucn_reserves_sf))
+IUCN <- IUCN |> terra::project(terra::crs(N2000_havstrategi))
 
 N2000_havstrategi_reserves_IUCN <- terra::union(N2000_havstrategi_reserves, IUCN)
 
@@ -225,15 +227,15 @@ SpeciesPoolR::write_cog(RasterizedPS, "PSbinary.tif")
 ### First we add protected areas
 
 ```{r PA, eval=FALSE}
-Categories <- TemplateSea
-Categories <- terra::ifel(PA == 1, 1, TemplateSea)
+Categories <- SeaTemplate
+Categories <- terra::ifel(protected_areas_sea == 1, 1, SeaTemplate)
 ```
 
 Then we add areas that are fished
 
 ```{r, eval=FALSE}
 PSbinary <- terra::rast("PSbinary.tif")
-Categories <- terra::ifel(Categories == 0 & FishingTrawling %in% c(2,3) & PSbinary == 1, 4, Categories)
+Categories <- terra::ifel(Categories == 0 & fishing_trawling_numeric %in% c(2,4) & PSbinary == 1, 4, Categories)
 ```
 
 
@@ -258,24 +260,10 @@ Categories <- terra::ifel(PSbinary == 1 & Categories == 0, 3, Categories)
 ```
 
 
-Areas
-
-```{r, eval=FALSE}
-Areas <- terra::freq(Categories2)
-
-Areas2 <- Areas |> 
-  dplyr::mutate(Km2 = (count*100)/1000000, percentage = (Km2/Area_DK_HA_Sea)*100) |> 
-  dplyr::select(-layer, -count)
-```
 
 
-```{r, eval=FALSE}
-LVLS <- data.frame(Level = c(0:3), Category = c("Other", "Protected", "Requires individual assesment", "insufficient legal protection"))
 
-Categories2 <- Categories
-levels(Categories2) <- LVLS
-SpeciesPoolR::write_cog(Categories2, "FourCats.tif")
-```
+
 
 ## Final category
 
@@ -290,4 +278,125 @@ levels(Categories2) <- LVLS
 SpeciesPoolR::write_cog(Categories2, "SeaAllCats.tif")
 ```
 
+Areas
+
+```{r, eval=FALSE}
+Areas <- terra::freq(Categories2)
+
+Areas2 <- Areas |> 
+  dplyr::mutate(Km2 = (count*100)/1000000, percentage = (Km2/Area_DK_KM_Sea)*100) |> 
+  dplyr::select(-layer, -count)
+```
+
+# Next steps
+
+## Read in Trawlfri and make it a polygon
+
+```{r Trawlfri}
+Trawlfri <- terra::rast("O:/Nat_Sustain-proj/_user/derekCorcoran_au687614/biodiversitetsradet.github.io/sea_area_analyses/Trawlfri.tif") |> as.polygons() |> terra::disagg()
+```
+
+
+* Trawlfri layer Check intercept with updated layers (Natura2000, Havstrategi, IUCN Fredninger, Wildreservater)
+
+
+## Check intersection with havstrategi omrade
+
+```{r Intersection_havstrategi_Trawlfri, cache=FALSE, eval=FALSE}
+Intersection_havstrategi_Trawlfri <- terra::intersect(TotalHavstrategi,Trawlfri)
+
+writeVector(Intersection_havstrategi_Trawlfri, "Intersection_havstrategi_Trawlfri.shp")
+
+Intersection_havstrategi_Trawlfri_area <- terra::expanse(Intersection_havstrategi_Trawlfri, unit = "km")
+```
+
+```{r readsintersection1, eval=TRUE, echo=FALSE}
+Intersection_havstrategi_Trawlfri <- terra::vect("Intersection_havstrategi_Trawlfri.shp")
+
+Intersection_havstrategi_Trawlfri_area <- terra::expanse(Intersection_havstrategi_Trawlfri, unit = "km")
+```
+
+
+The total area of the intersection between trawlfri areas and havstrategi omrade is `r round(Intersection_havstrategi_Trawlfri_area, 2)` square kilometers, the area can be seen in the following plot in red
+
+```{r plotIntersection_havstrategi_Trawlfri_area, cache=FALSE, echo=FALSE}
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_havstrategi_Trawlfri, fill = "red")
+```
+
+
+## Check intersection with Natura 2000
+
+```{r Intersection_Natura2000_Trawlfri, cache=F, eval=FALSE}
+Intersection_Natura2000_Trawlfri <- terra::intersect(TotalN2000,Trawlfri)
+
+writeVector(Intersection_Natura2000_Trawlfri, "Intersection_Natura2000_Trawlfri.shp")
+
+Intersection_Natura2000_Trawlfri_area <- terra::expanse(Intersection_Natura2000_Trawlfri, unit = "km")
+```
+
+```{r readintersetion2, echo = F}
+Intersection_Natura2000_Trawlfri <-  terra::vect("Intersection_Natura2000_Trawlfri.shp")
+
+Intersection_Natura2000_Trawlfri_area <- sum(terra::expanse(Intersection_Natura2000_Trawlfri, unit = "km"))
+```
+
+
+The total area of the intersection between trawlfri areas and Natura 2000 is `r round(Intersection_Natura2000_Trawlfri_area, 2)` square kilometers, the area can be seen in the following plot in red
+
+```{r plotIntersection_Natura2000_Trawlfri_area, cache=FALSE}
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Natura2000_Trawlfri, fill = "red")
+```
+
+## Check intersection with wildife Reserves
+
+```{r Intersection_Reserves_Trawlfri, cache = F, eval=FALSE}
+Reserves <- terra::vect("Reserves.shp")
+
+Intersection_Reserves_Trawlfri <- terra::intersect(Reserves,Trawlfri)
+
+writeVector(Intersection_Reserves_Trawlfri, "Intersection_Reserves_Trawlfri.shp")
+
+Intersection_Reserves_Trawlfri_area <- terra::expanse(Intersection_Reserves_Trawlfri, unit = "km")
+```
+
+```{r readintersection3, echo=FALSE}
+Intersection_Reserves_Trawlfri <- terra::vect("Intersection_Reserves_Trawlfri.shp")
+
+Intersection_Reserves_Trawlfri_area <- sum(terra::expanse(Intersection_Reserves_Trawlfri, unit = "km"))
+```
+
+
+The total area of the intersection between trawlfri areas and Wildlife reserves is `r round(Intersection_Reserves_Trawlfri_area, 2)` square kilometers, the area can be seen in the following plot in red
+
+```{r plotIntersection_Reserves_Trawlfri_area}
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Reserves_Trawlfri, fill = "red")
+```
+
+
+## 
+## Check intersection with IUCN Fredninger
+
+```{r Intersection_IUCN_Trawlfri, eval=FALSE}
+IUCN <- as.polygons(IUCN) |> terra::disagg()
+Intersection_IUCN_Trawlfri <- terra::intersect(IUCN,Trawlfri)
+
+writeVector(Intersection_IUCN_Trawlfri, "Intersection_IUCN_Trawlfri.shp")
+
+Intersection_IUCN_Trawlfri_area <- terra::expanse(Intersection_IUCN_Trawlfri, unit = "km")
+```
+
+
+```{r readintersection4, echo = F}
+Intersection_IUCN_Trawlfri <- terra::vect("Intersection_IUCN_Trawlfri.shp")
+
+Intersection_IUCN_Trawlfri_area <- sum(terra::expanse(Intersection_IUCN_Trawlfri, unit = "km"))
+```
+
+
+
+The total area of the intersection between trawlfri areas and IUCN Fredninger is `r round(Intersection_IUCN_Trawlfri_area, 2)` square kilometers, the area can be seen in the following plot in red
+
+```{r plotIntersection_IUCN_Trawlfri_area, cache=FALSE}
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_IUCN_Trawlfri, fill = "red")
+```
 
