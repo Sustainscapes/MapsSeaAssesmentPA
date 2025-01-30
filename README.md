@@ -368,8 +368,6 @@ ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spat
 
 ![](README_files/figure-gfm/plotIntersection_Reserves_Trawlfri_area-1.png)<!-- -->
 
-## 
-
 ## Check intersection with IUCN Fredninger
 
 ``` r
@@ -390,3 +388,107 @@ ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spat
 ```
 
 ![](README_files/figure-gfm/plotIntersection_IUCN_Trawlfri_area-1.png)<!-- -->
+
+# Check intersection between fishing areas and protected areas
+
+## Read in active fishing and make it a polygon
+
+``` r
+fishing_trawling_status <- terra::rast("Data/fishing_trawling_status.tif")
+
+ActiveFishing <- as.numeric(fishing_trawling_status)
+
+ActiveFishing <- ifel(ActiveFishing %in% c(1,3), NA, ActiveFishing)
+ActiveFishing <- ifel(is.na(ActiveFishing), NA, 1)
+ActiveFishing <- as.polygons(ActiveFishing) |> terra::disagg()
+terra::writeVector(ActiveFishing, "ActiveFishing.shp")
+```
+
+- Active fishing layer Check intercept with updated layers (Natura2000,
+  Havstrategi, IUCN Fredninger, Wildreservater)
+
+## Check intersection with havstrategi omrade
+
+``` r
+Intersection_havstrategi_ActiveFishing <- terra::intersect(TotalHavstrategi,ActiveFishing)
+
+writeVector(Intersection_havstrategi_ActiveFishing, "Intersection_havstrategi_ActiveFishing.shp")
+
+Intersection_havstrategi_ActiveFishing_area <- terra::expanse(Intersection_havstrategi_ActiveFishing, unit = "km")
+```
+
+The total area of the intersection between ActiveFishing areas and
+havstrategi omrade is 2.03, 0.03, 0, 0.03, 0.01, 2.54, 0.06, 0, 0.03,
+0.02, 0.01, 0.01, 0.05, 0.03, 1.96, 0.54, 0.03, 0.02, 0, 4.74, 0.03,
+0.01, 3.27, 0.02, 0, 0.02, 0.01, 0.03, 0.03, 0.06, 0, 0.01, 0.02, 0.01,
+0, 0.01, 1.35, 0.01, 0.02, 0.76, 0.02, 0.01, 0.07, 0.01, 0.03, 0.03, 0,
+0.01, 0, 0.02, 0.01, 15.62, 0.02, 0.04, 0.02, 0.02, 0.02, 0.05, 0.07,
+0.95, 0.01, 0, 0, 0, 0.01, 0.04, 0.01, 0, 0, 0, 0.01, 0.02, 0.03, 0.91,
+0.04, 0.02, 0, 0, 0.01, 0, 0, 0, 0.02, 0, 0, 0.21, 0 square kilometers,
+the area can be seen in the following plot in red
+
+![](README_files/figure-gfm/plotIntersection_havstrategi_ActiveFishing_area-1.png)<!-- -->
+
+## Check intersection with Natura 2000
+
+``` r
+Intersection_Natura2000_ActiveFishing <- terra::intersect(TotalN2000,ActiveFishing)
+
+writeVector(Intersection_Natura2000_ActiveFishing, "Intersection_Natura2000_ActiveFishing.shp")
+
+Intersection_Natura2000_ActiveFishing_area <- terra::expanse(Intersection_Natura2000_ActiveFishing, unit = "km")
+```
+
+The total area of the intersection between ActiveFishing areas and
+Natura 2000 is 1.073789^{4} square kilometers, the area can be seen in
+the following plot in red
+
+``` r
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Natura2000_ActiveFishing, fill = "red")
+```
+
+![](README_files/figure-gfm/plotIntersection_Natura2000_ActiveFishing_area-1.png)<!-- -->
+
+## Check intersection with wildife Reserves
+
+``` r
+Reserves <- terra::vect("Reserves.shp")
+
+Intersection_Reserves_ActiveFishing <- terra::intersect(Reserves,ActiveFishing)
+
+writeVector(Intersection_Reserves_ActiveFishing, "Intersection_Reserves_ActiveFishing.shp")
+
+Intersection_Reserves_ActiveFishing_area <- terra::expanse(Intersection_Reserves_ActiveFishing, unit = "km")
+```
+
+The total area of the intersection between ActiveFishing areas and
+Wildlife reserves is 480.72 square kilometers, the area can be seen in
+the following plot in red
+
+``` r
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Reserves_ActiveFishing, fill = "red")
+```
+
+![](README_files/figure-gfm/plotIntersection_Reserves_ActiveFishing_area-1.png)<!-- -->
+
+## Check intersection with IUCN Fredninger
+
+``` r
+ActiveFishing <- terra::vect("ActiveFishing.shp")
+IUCN <- as.polygons(IUCN) |> terra::disagg()
+Intersection_IUCN_ActiveFishing <- terra::intersect(IUCN,ActiveFishing)
+
+writeVector(Intersection_IUCN_ActiveFishing, "Intersection_IUCN_ActiveFishing.shp")
+
+Intersection_IUCN_ActiveFishing_area <- terra::expanse(Intersection_IUCN_ActiveFishing, unit = "km")
+```
+
+The total area of the intersection between ActiveFishing areas and IUCN
+Fredninger is 15.04 square kilometers, the area can be seen in the
+following plot in red
+
+``` r
+ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_IUCN_ActiveFishing, fill = "red")
+```
+
+![](README_files/figure-gfm/plotIntersection_IUCN_ActiveFishing_area-1.png)<!-- -->
