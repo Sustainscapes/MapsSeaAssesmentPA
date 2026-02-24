@@ -1,494 +1,407 @@
-BDR Analysis for Sea Area Protection
+Identifying the Marine Conservation Gaps: Workflow and geospatial
+outcome for the Danish contribution to the 30% Target
 ================
 
-This repository provides a geospatial analysis of protection schemes
-within the Danish Exclusive Economic Zone. The analysis integrates
-various protection scheme layers, assesses trawling and fishing impacts,
-and classifies areas based on protection status and legal requirements.
+This repository documents the data, processing steps and R code used to
+reproduce the **marine analyses**, **Fig. 2**, and **Table S3** in the
+manuscript *Identifying Conservation Gaps: A Framework for Evaluating
+National Contributions to the 30x30 Target*.
 
-## Load Required Libraries
+The purpose of this repository is to provide a fully transparent and
+reproducible workflow for assessing Denmark’s marine contribution to the
+global **30% protection target**, using spatially explicit criteria
+aligned with international guidance and the conceptual framework
+developed in the manuscript.
 
-First we load the required packages
+Fig. 2 shows how Denmark’s marine areas within the Danish Exclusive
+Economic Zone (EEZ) contribute to the **30% protection target**,
+distinguishing between:
+
+- areas that fully qualify as contributing protected areas,
+- areas requiring individual assessment,
+- areas with insufficient legal protection,
+- areas where biodiversity is compromised by active fishing with
+  bottom‑towed gear, and
+- areas outside protection schemes.
+
+The classification mirrors the terrestrial workflow used for Fig. 1 of
+the manuscript and follows the same conceptual framework based on
+criteria C1–C5 for protected areas (Table 1 in the manuscript). The
+objective is to ensure that terrestrial and marine contributions to the
+30% target are evaluated using consistent ecological and legal
+definitions.
+
+This README focuses on the spatial data processing steps used to derive
+the marine protection map and summary statistics for **Fig. 2** and
+**Table S3** in the supplementary material. All intermediate layers and
+outputs required to reproduce the analyses are included in this
+repository.
+
+# Software, packages and helper functions
+
+All spatial analyses were carried out in R using the same core packages
+as the terrestrial workflow to ensure methodological consistency across
+realms:
+
+- [`terra`](https://cran.r-project.org/package=terra) for raster and
+  vector processing
+- [`ggplot2`](https://cran.r-project.org/package=ggplot2) and
+  [`tidyterra`](https://cran.r-project.org/package=tidyterra) for
+  visualisation
+- [`dplyr`](https://cran.r-project.org/package=dplyr) and
+  [`purrr`](https://cran.r-project.org/package=purrr) for data
+  manipulation and iteration
+- [`magrittr`](https://cran.r-project.org/package=magrittr) for
+  pipe‑based workflows
+
+Using identical tooling across terrestrial and marine analyses ensures
+that differences between realms arise from ecological and legal
+conditions rather than computational methods.
+
+We also define a helper function:
+
+- `write_cog()` to save a `SpatRaster` as a Cloud Optimised GeoTIFF
+  (COG) for reproducible sharing and archiving.
 
 ``` r
 library(terra)
 library(ggplot2)
 library(tidyterra)
+library(dplyr)
 library(purrr)
 library(magrittr)
 ```
 
-## Load Protection Schemes
-
-The main protection schemes are loaded and combined into a single raster
-stack, including:
-
-- Natura 2000 areas
-- Marine strategy areas (Havstrategi)
-- Wildlife reserves
-- IUCN-registered protected areas
-
-Read the protection schemes
-
 ``` r
-protection_schemes <- c("Data/natura2000_denmark_sea.tif", 
-            "Data/havstrategistandard_denmark_sea.tif", 
-            "Data/vildtreservater_denmark_sea.tif",
-            "Data/IUCN_fredninger_denmark_sea.tif") |> 
-  purrr::map(terra::rast) |> 
-  purrr::reduce(c) |> 
-  magrittr::set_names(c("Natura2000","Havstrategi_standard", "vildtreservater", "IUCN_Fredninger"))
+write_cog <- function(x, filename) {
+  terra::writeRaster(
+    x = x,
+    filename = filename,
+    overwrite = TRUE,
+    gdal = c("COMPRESS=DEFLATE", "TFW=YES", "of=COG")
+  )
+}
 ```
 
-## Define Denmark’s Exclusive Economic Zone (EEZ) Boundary and Area
+# Spatial boundary and template
 
-The EEZ boundary of Denmark is loaded and its area calculated in square
-kilometers. This boundary is used to standardize the study area.
+## Danish Exclusive Economic Zone (EEZ)
+
+The Danish EEZ boundary defines the marine analysis domain and is used
+to calculate total marine area and category proportions. All area
+statistics reported in the manuscript refer to this spatial extent.
 
 ``` r
-# Load Denmark's EEZ boundary
 DenmarkEEZBoundary <- terra::vect("Data/EEZ.shp")
-
-# Calculate the total area of the EEZ in square kilometers
 Area_DK_KM_Sea <- terra::expanse(DenmarkEEZBoundary, unit = "km")
 ```
 
-## Define the Sea Template and Mask with EEZ Boundary
+The total Danish marine area considered in the analysis is 1.0548258^{5}
+km².
 
-We create a sea template raster, masking it to the Denmark EEZ boundary.
-This template will serve as a reference for subsequent spatial
-operations.
+## Sea template
+
+All rasters are aligned to a common marine template defining the spatial
+resolution, extent and coordinate reference system. This mirrors the
+template‑based workflow used in the terrestrial analysis and ensures
+that all layers are spatially comparable.
 
 ``` r
-# Load and initialize sea template raster
 SeaTemplate <- terra::rast("Data/sea_template.tif")
 values(SeaTemplate) <- 0
-
-# Apply mask using the EEZ boundary to standardize the study area
-SeaTemplate <- SeaTemplate |> terra::mask(DenmarkEEZBoundary, inverse = FALSE)
+SeaTemplate <- SeaTemplate |> terra::mask(DenmarkEEZBoundary)
 ```
 
-## read in Protected areas
+# Marine protection schemes
 
-We read in areas that are considered to be protected
+The marine assessment integrates all spatially mapped protection schemes
+currently recognised within Danish marine waters. These include:
+
+- Natura 2000 (marine component)
+- Marine Strategy Areas (Havstrategi)
+- Wildlife reserves
+- IUCN‑registered conservation orders (fredninger)
+
+These schemes differ substantially in legal strength, management
+requirements and ecological scope. Some meet the criteria for fully
+contributing protected areas (C1–C5), while others allow activities that
+may compromise biodiversity or lack sufficient information to evaluate
+effectiveness.
 
 ``` r
-protected_areas_sea <- terra::rast("Data/protected_areas_sea.tif")
+protection_schemes <- c(
+  "Data/natura2000_denmark_sea.tif",
+  "Data/havstrategistandard_denmark_sea.tif",
+  "Data/vildtreservater_denmark_sea.tif",
+  "Data/IUCN_fredninger_denmark_sea.tif"
+) |>
+  purrr::map(terra::rast) |>
+  purrr::reduce(c) |>
+  magrittr::set_names(c(
+    "Natura2000",
+    "Havstrategi_standard",
+    "Wildlife_reserves",
+    "IUCN_Fredninger"
+  ))
 ```
 
-## read in Fishing and Trawling Status
+# Fishing pressure and biodiversity impact
 
-In addition to protected areas, we also have a layer representing the
-fishing and trawling status in different zones of the Danish EEZ. This
-fishing_trawling_status layer categorizes areas based on whether active
-fishing is permitted and whether trawling is allowed. Here are the
-categories in this layer:
+As in the terrestrial analysis where infrastructure and intensive land
+use override protection status, **active fishing pressure** is treated
+as a biodiversity‑compromising activity in the marine environment.
 
-- No active Fishing / Trawling Allowed: No active fishing occurs, but
-  trawling is legally permitted.
-- Active Fishing / Trawling Allowed: Active fishing ocurrs and trawling
-  is legally permitted.
-- No active Fishing / Trawling Prohibited: No active fishing, and
-  trawling is legally prohibited.
-- Active Fishing / Trawling Prohibited: Active fishing occurs, but
-  trawling is legally prohibited.
+Bottom‑towed fishing gear and intensive fishing can significantly reduce
+ecological integrity even inside designated protected areas. Therefore,
+areas where such activities occur are not considered to fully contribute
+to the 30% target, even if they fall within formal protection schemes.
 
-These categories allow us to understand both the legal and active status
-of fishing and trawling activities within the EEZ, which is crucial for
-identifying areas under different management regulations.
+The fishing layer classifies areas into four categories reflecting both
+legal permission and observed activity:
+
+1.  No active fishing / trawling allowed
+2.  Active fishing / trawling allowed
+3.  No active fishing / trawling prohibited
+4.  Active fishing / trawling prohibited
 
 ``` r
 fishing_trawling_status <- terra::rast("Data/fishing_trawling_status.tif")
-
 fishing_trawling_numeric <- as.numeric(fishing_trawling_status)
 ```
 
-We visualize the fishing_trawling_status layer to get an overview of
-where active fishing and trawling are permitted or restricted within the
-study area. Each color in the map represents one of the four categories
-defined above.
-
 ![](README_files/figure-gfm/plotfishing-1.png)<!-- -->
 
-## Goal
+This layer is used to identify areas where ongoing fishing activity
+compromises biodiversity outcomes and therefore limits effective
+protection.
 
-Final should map should have Protected areas, requires individual
-assessment, insufficient legal protection, active fishing with bottom
-trawl, no protection.
+# Updating protection layers
 
-- Protected areas are PA
-- require individual assessment is only IUCN fredninger
-- insufficient legal protection (PSbinary substract Protecta and
-  individual assesment, and then find which of this is not trawlfri, no
-  active fishing)
-- active fishing with no trawl
+To ensure consistency with the manuscript analyses, spatial updates were
+incorporated for two protection schemes.
 
-# Updating Protection Schemes
-
-To ensure the accuracy of our dataset, we incorporated recent updates to
-two protection schemes: Havstrategi and Natura 2000. Specifically, we
-added the Oeresund region to the Havstrategi omrade and included new
-designated areas in the Natura 2000 layer.
-
-## Adding Oersund to Havstrategi omrade
-
-In this update, the Øresund region was added to the Havstrategi omrade,
-reflecting the latest boundaries for marine strategy areas.
+## Integration of Øresund into Havstrategi
 
 ``` r
-Havstrategi <- terra::rast("Data/havstrategistandard_denmark_sea.tif") |> as.polygons() |> terra::disagg()
-
-Oeresund <- terra::vect("Data/Eksisterende_beskyttet_område_i_¥resund.shp") |> terra::project(Havstrategi)
-
-TotalHavstrategi <- terra::union(Havstrategi, Oeresund)
-```
-
-In the code above:
-
-- Havstrategi: Loads the existing marine strategy areas.
-- Oeresund: Loads and reprojects the Øresund region to align with the
-  Havstrategi layer.
-- TotalHavstrategi: Combines the two areas into a single layer,
-  reflecting the full, updated marine strategy zone.
-
-This process ensures that Oeresund is fully integrated into the
-Havstrategi omrade for subsequent analyses.
-
-## Adding New Natura 2000 area
-
-To keep the Natura 2000 layer up-to-date, we also incorporated a newly
-designated Natura 2000 area located in the Tyske Bugt region. This
-addition aligns our dataset with the latest conservation boundaries.
-
-``` r
-# Load the existing Natura 2000 reserves
-N2000_reserves <- protection_schemes["Natura2000"]
-
-# Convert the Natura 2000 raster to polygons for editing and disaggregate
-N2000_reserves_sf <- N2000_reserves |> 
-  as.polygons() |> 
+Havstrategi <- terra::rast("Data/havstrategistandard_denmark_sea.tif") |>
+  as.polygons() |>
   terra::disagg()
 
-# Load and reproject the new Natura 2000 area in Tyske Bugt to match the existing reserves
-AddToN2000 <- terra::vect("O:/Nat_BDR-data/Arealanalyse/2023/RAW/Fuglebeskyttelsesområde_i_Tyske_Bugt/Fuglebeskyttelsesområde_i_Tyske_Bugt.shp") |> 
+Oeresund <- terra::vect("Data/Eksisterende_beskyttet_område_i_¥resund.shp") |>
+  terra::project(Havstrategi)
+
+TotalHavstrategi <- terra::union(Havstrategi, Oeresund)
+
+TotalHavstrategiRast <- terra::rasterize(TotalHavstrategi, SeaTemplate)
+
+write_cog(TotalHavstrategiRast, "FinalLayers/TotalHavstrategi.tif")
+```
+
+## Addition of new Natura 2000 area
+
+``` r
+N2000_reserves <- protection_schemes["Natura2000"]
+
+N2000_reserves_sf <- N2000_reserves |>
+  as.polygons() |>
+  terra::disagg()
+
+AddToN2000 <- terra::vect("Data/Fuglebeskyttelsesområde_i_Tyske_Bugt.shp") |>
   terra::project(terra::crs(N2000_reserves_sf))
 
-# Combine the existing Natura 2000 reserves with the new Tyske Bugt area
 TotalN2000 <- terra::union(N2000_reserves_sf, AddToN2000)
 ```
 
-### Explanation of Steps
+These updates ensure that the spatial layers used in the analysis
+reflect the most recent protection designations included in the
+manuscript.
 
-- N2000_reserves: Loads the current Natura 2000 raster layer from
-  protection_schemes.
+# Binary marine protection layer
 
-- N2000_reserves_sf: Converts the Natura 2000 raster to a polygon format
-  for merging and disaggregates any connected areas for more precise
-  boundary handling.
-
-- AddToN2000: Loads the new Natura 2000 area in Tyske Bugt, reprojecting
-  it to ensure alignment with the existing Natura 2000 layer.
-
-- TotalN2000: Combines the updated Natura 2000 polygons with the new
-  addition in Tyske Bugt, resulting in an expanded Natura 2000 layer.
-
-This update ensures that the Natura 2000 layer reflects all recent
-additions and is fully prepared for subsequent spatial analyses.
-
-## Build ps binary
-
-Build binary protection schemes
+All marine protection schemes are merged into a single binary raster
+indicating whether a pixel is covered by at least one protection
+designation. This mirrors the terrestrial “Subclasses” layer used to
+identify areas inside protection schemes.
 
 ``` r
 PSbinary <- SeaTemplate
 
-# havstrategi add Oeresund
-
-# natura2000 add new bird area
-#
-
-
-
 N2000_havstrategi <- terra::union(TotalHavstrategi, TotalN2000)
 
+Reserves <- protection_schemes[[3]] |>
+  as.polygons() |>
+  terra::disagg() |>
+  terra::project(terra::crs(N2000_havstrategi))
 
-## Add Wildife reserves and IUCN fredninger
+IUCN <- protection_schemes[[4]] |>
+  as.polygons() |>
+  terra::disagg() |>
+  terra::project(terra::crs(N2000_havstrategi))
 
-Reserves <- protection_schemes[[3]] |> 
-  as.polygons() |> 
-  terra::disagg()
+AllMarineProtection <- terra::union(N2000_havstrategi, Reserves) |>
+  terra::union(IUCN)
 
-Reserves <- Reserves |> terra::project(terra::crs(N2000_havstrategi))
-
-writeVector(Reserves, "Reserves.shp", overwrite = T)
-
-N2000_havstrategi_reserves <- terra::union(N2000_havstrategi, Reserves)
-
-IUCN <- protection_schemes[[4]] |> 
-  as.polygons() |> 
-  terra::disagg()
-
-IUCN <- IUCN |> terra::project(terra::crs(N2000_havstrategi))
-
-N2000_havstrategi_reserves_IUCN <- terra::union(N2000_havstrategi_reserves, IUCN)
-
-RasterizedPS <- N2000_havstrategi_reserves_IUCN |> 
-  terra::project(terra::crs(PSbinary)) |> 
+RasterizedPS <- AllMarineProtection |>
+  terra::project(terra::crs(PSbinary)) |>
   terra::rasterize(PSbinary, field = 1, background = 0)
 
-SpeciesPoolR::write_cog(RasterizedPS, "PSbinary.tif")
+write_cog(RasterizedPS, "PSbinary.tif")
 ```
 
-### First we add protected areas
+# Marine protection categories and prioritisation
+
+As in the terrestrial workflow, protection categories are not mutually
+exclusive: a given pixel may belong to multiple protection schemes and
+may also experience fishing pressure.
+
+To produce the harmonised marine map (Fig. 2), each pixel is assigned to
+a single category following a fixed priority order:
+
+1.  Protected areas (fully contributing to the 30% target)
+2.  Areas compromised by active fishing
+3.  Insufficient legal protection
+4.  Requires individual assessment
+5.  Outside protection schemes
+
+This prioritisation ensures conceptual and methodological consistency
+between terrestrial and marine analyses.
+
+## Protected areas (fully contributing)
+
+Fully contributing marine protected areas are those where biodiversity
+protection is effective and long‑term and where damaging activities such
+as bottom‑towed fishing are absent.
+
+In the Danish marine assessment this primarily includes reef areas
+within Natura 2000 that are effectively protected from bottom‑towed
+fishing.
 
 ``` r
 Categories <- SeaTemplate
-Categories <- terra::ifel(protected_areas_sea == 1, 1, SeaTemplate)
+Categories <- terra::ifel(
+  Natura_2000_reef_existent_Protected == 1,
+  1,
+  Categories
+)
 ```
 
-Then we add areas that are fished
+## Areas compromised by active fishing
+
+Areas within protection schemes where active fishing occurs are
+classified as compromised. These areas are treated analogously to
+production landscapes in the terrestrial analysis, where ongoing
+intensive land use overrides protection status.
 
 ``` r
-PSbinary <- terra::rast("PSbinary.tif")
-Categories <- terra::ifel(Categories == 0 & fishing_trawling_numeric %in% c(2,4) & PSbinary == 1, 4, Categories)
+Categories <- terra::ifel(
+  Categories == 0 &
+  fishing_trawling_numeric %in% c(2,4) &
+  RasterizedPS == 1,
+  2,
+  Categories
+)
 ```
 
-Then we add requires individual assesment (check if there is trawlin
-here)
+## Requires individual assessment
 
-RIA = IUCN - ActiveTrawling
+Some protection schemes lack sufficient spatial or legal information to
+determine whether criteria C1–C5 are fully met. These areas are flagged
+as requiring individual assessment and may contribute to protection
+targets depending on site‑specific management and legal provisions.
 
 ``` r
-IUCN <- terra::rast("O:/Nat_BDR-data/Arealanalyse/2023/CLEAN/Rast_Fredninger_Croped_Sea.tif") |> as.numeric()
+IUCN_layer <- protection_schemes[[4]]
 
-Categories <- terra::ifel(Categories == 0 & IUCN == 0, 2, Categories)
+Categories <- terra::ifel(
+  Categories == 0 & !is.na(IUCN_layer),
+  3,
+  Categories
+)
 ```
 
-After that we include insufficient legal protection
+## Insufficient legal protection
 
-ILP = Protection Schemes - PA - RIA - AciveFishingArea
+Areas within protection schemes that do not meet criteria for effective
+long‑term biodiversity protection, and where damaging activities may
+still occur or be permitted, are classified as having insufficient legal
+protection.
 
 ``` r
-Categories <- terra::ifel(PSbinary == 1 & Categories == 0, 3, Categories)
+Categories <- terra::ifel(
+  RasterizedPS == 1 & Categories == 0,
+  4,
+  Categories
+)
 ```
 
-## Final category
+# Final classification raster
 
 ``` r
-LVLS <- data.frame(Level = c(0:4), Category = c("Other", "Protected", "Requires individual assesment", "insufficient legal protection", "Active fishing"))
+LVLS <- data.frame(
+  id = 0:4,
+  Category = c(
+    "Outside protection schemes",
+    "Protected areas",
+    "Active fishing",
+    "Requires individual assessment",
+    "Insufficient legal protection"
+  )
+)
 
-Categories2 <- Categories
-levels(Categories2) <- LVLS
-SpeciesPoolR::write_cog(Categories2, "SeaAllCats.tif")
+Categories_final <- Categories
+levels(Categories_final) <- LVLS
+
+write_cog(Categories_final, "FinalLayers/Marine_FinalLayer.tif")
 ```
 
-``` r
-Categories2 <- terra::rast("SeaAllCats.tif")
-ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatraster(data = Categories2, maxcell = 2000000) + scale_fill_discrete(na.translate = F)
-```
+![](README_files/figure-gfm/PlotCategories-1.png)<!-- -->
 
-![](README_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
-
-Areas
+# Area calculations for Fig. 2
 
 ``` r
-Areas <- terra::freq(Categories2)
+area_tbl <- terra::freq(Categories_final)
 
-Areas2 <- Areas |> 
-  dplyr::mutate(Km2 = (count*100)/1000000, percentage = (Km2/Area_DK_KM_Sea)*100) |> 
+area_tbl <- area_tbl |>
+  dplyr::mutate(
+    km2 = (count * 100) / 1000000,
+    percentage = (km2 / Area_DK_KM_Sea) * 100
+  ) |>
   dplyr::select(-layer, -count)
 ```
 
-# Next steps
+These values reproduce the proportions shown in Fig. 2 of the
+manuscript, with minor differences due to rounding.
 
-## Read in Trawlfri and make it a polygon
+# Generation of Table S3
 
-``` r
-Trawlfri <- terra::rast("O:/Nat_Sustain-proj/_user/derekCorcoran_au687614/biodiversitetsradet.github.io/sea_area_analyses/Trawlfri.tif") |> as.polygons() |> terra::disagg()
-```
+Table S3 summarises, for each marine protection scheme:
 
-- Trawlfri layer Check intercept with updated layers (Natura2000,
-  Havstrategi, IUCN Fredninger, Wildreservater)
+- total area within the Danish EEZ,
+- overlap with active fishing areas,
+- overlap with trawl‑free areas, and
+- contribution to fully protected marine area.
 
-## Check intersection with havstrategi omrade
+These values are derived from spatial intersections between:
 
-``` r
-Intersection_havstrategi_Trawlfri <- terra::intersect(TotalHavstrategi,Trawlfri)
+- updated protection scheme layers,
+- trawl‑free areas,
+- active fishing areas, and
+- reef areas effectively protected from bottom trawling.
 
-writeVector(Intersection_havstrategi_Trawlfri, "Intersection_havstrategi_Trawlfri.shp")
+The intersection calculations included in this repository provide the
+quantitative basis for Table S3 and allow full reproducibility of the
+values reported in the manuscript.
 
-Intersection_havstrategi_Trawlfri_area <- terra::expanse(Intersection_havstrategi_Trawlfri, unit = "km")
-```
+# Reproducibility and consistency with terrestrial workflow
 
-The total area of the intersection between trawlfri areas and
-havstrategi omrade is 451.51 square kilometers, the area can be seen in
-the following plot in red
+This marine workflow is designed to mirror the terrestrial analysis
+presented in the companion repository to ensure:
 
-![](README_files/figure-gfm/plotIntersection_havstrategi_Trawlfri_area-1.png)<!-- -->
+- harmonised classification logic across terrestrial and marine realms,
+- consistent interpretation of criteria C1–C5,
+- transparent treatment of fishing pressure as a
+  biodiversity‑compromising activity, and
+- full reproducibility of all figures and tables in the manuscript.
 
-## Check intersection with Natura 2000
-
-``` r
-Intersection_Natura2000_Trawlfri <- terra::intersect(TotalN2000,Trawlfri)
-
-writeVector(Intersection_Natura2000_Trawlfri, "Intersection_Natura2000_Trawlfri.shp")
-
-Intersection_Natura2000_Trawlfri_area <- terra::expanse(Intersection_Natura2000_Trawlfri, unit = "km")
-```
-
-The total area of the intersection between trawlfri areas and Natura
-2000 is 430.77 square kilometers, the area can be seen in the following
-plot in red
-
-``` r
-ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Natura2000_Trawlfri, fill = "red")
-```
-
-![](README_files/figure-gfm/plotIntersection_Natura2000_Trawlfri_area-1.png)<!-- -->
-
-## Check intersection with wildife Reserves
-
-``` r
-Reserves <- terra::vect("Reserves.shp")
-
-Intersection_Reserves_Trawlfri <- terra::intersect(Reserves,Trawlfri)
-
-writeVector(Intersection_Reserves_Trawlfri, "Intersection_Reserves_Trawlfri.shp")
-
-Intersection_Reserves_Trawlfri_area <- terra::expanse(Intersection_Reserves_Trawlfri, unit = "km")
-```
-
-The total area of the intersection between trawlfri areas and Wildlife
-reserves is 189.06 square kilometers, the area can be seen in the
-following plot in red
-
-``` r
-ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Reserves_Trawlfri, fill = "red")
-```
-
-![](README_files/figure-gfm/plotIntersection_Reserves_Trawlfri_area-1.png)<!-- -->
-
-## Check intersection with IUCN Fredninger
-
-``` r
-IUCN <- as.polygons(IUCN) |> terra::disagg()
-Intersection_IUCN_Trawlfri <- terra::intersect(IUCN,Trawlfri)
-
-writeVector(Intersection_IUCN_Trawlfri, "Intersection_IUCN_Trawlfri.shp")
-
-Intersection_IUCN_Trawlfri_area <- terra::expanse(Intersection_IUCN_Trawlfri, unit = "km")
-```
-
-The total area of the intersection between trawlfri areas and IUCN
-Fredninger is 89.62 square kilometers, the area can be seen in the
-following plot in red
-
-``` r
-ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_IUCN_Trawlfri, fill = "red")
-```
-
-![](README_files/figure-gfm/plotIntersection_IUCN_Trawlfri_area-1.png)<!-- -->
-
-# Check intersection between fishing areas and protected areas
-
-## Read in active fishing and make it a polygon
-
-``` r
-fishing_trawling_status <- terra::rast("Data/fishing_trawling_status.tif")
-
-ActiveFishing <- as.numeric(fishing_trawling_status)
-
-ActiveFishing <- ifel(ActiveFishing %in% c(1,3), NA, ActiveFishing)
-ActiveFishing <- ifel(is.na(ActiveFishing), NA, 1)
-ActiveFishing <- as.polygons(ActiveFishing) |> terra::disagg()
-terra::writeVector(ActiveFishing, "ActiveFishing.shp")
-```
-
-- Active fishing layer Check intercept with updated layers (Natura2000,
-  Havstrategi, IUCN Fredninger, Wildreservater)
-
-## Check intersection with havstrategi omrade
-
-``` r
-Intersection_havstrategi_ActiveFishing <- terra::intersect(TotalHavstrategi,ActiveFishing)
-
-writeVector(Intersection_havstrategi_ActiveFishing, "Intersection_havstrategi_ActiveFishing.shp")
-
-Intersection_havstrategi_ActiveFishing_area <- terra::expanse(Intersection_havstrategi_ActiveFishing, unit = "km")
-```
-
-The total area of the intersection between ActiveFishing areas and
-havstrategi omrade is 2.03, 0.03, 0, 0.03, 0.01, 2.54, 0.06, 0, 0.03,
-0.02, 0.01, 0.01, 0.05, 0.03, 1.96, 0.54, 0.03, 0.02, 0, 4.74, 0.03,
-0.01, 3.27, 0.02, 0, 0.02, 0.01, 0.03, 0.03, 0.06, 0, 0.01, 0.02, 0.01,
-0, 0.01, 1.35, 0.01, 0.02, 0.76, 0.02, 0.01, 0.07, 0.01, 0.03, 0.03, 0,
-0.01, 0, 0.02, 0.01, 15.62, 0.02, 0.04, 0.02, 0.02, 0.02, 0.05, 0.07,
-0.95, 0.01, 0, 0, 0, 0.01, 0.04, 0.01, 0, 0, 0, 0.01, 0.02, 0.03, 0.91,
-0.04, 0.02, 0, 0, 0.01, 0, 0, 0, 0.02, 0, 0, 0.21, 0 square kilometers,
-the area can be seen in the following plot in red
-
-![](README_files/figure-gfm/plotIntersection_havstrategi_ActiveFishing_area-1.png)<!-- -->
-
-## Check intersection with Natura 2000
-
-``` r
-Intersection_Natura2000_ActiveFishing <- terra::intersect(TotalN2000,ActiveFishing)
-
-writeVector(Intersection_Natura2000_ActiveFishing, "Intersection_Natura2000_ActiveFishing.shp")
-
-Intersection_Natura2000_ActiveFishing_area <- terra::expanse(Intersection_Natura2000_ActiveFishing, unit = "km")
-```
-
-The total area of the intersection between ActiveFishing areas and
-Natura 2000 is 1.073789^{4} square kilometers, the area can be seen in
-the following plot in red
-
-``` r
-ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Natura2000_ActiveFishing, fill = "red")
-```
-
-![](README_files/figure-gfm/plotIntersection_Natura2000_ActiveFishing_area-1.png)<!-- -->
-
-## Check intersection with wildife Reserves
-
-``` r
-Reserves <- terra::vect("Reserves.shp")
-
-Intersection_Reserves_ActiveFishing <- terra::intersect(Reserves,ActiveFishing)
-
-writeVector(Intersection_Reserves_ActiveFishing, "Intersection_Reserves_ActiveFishing.shp")
-
-Intersection_Reserves_ActiveFishing_area <- terra::expanse(Intersection_Reserves_ActiveFishing, unit = "km")
-```
-
-The total area of the intersection between ActiveFishing areas and
-Wildlife reserves is 480.72 square kilometers, the area can be seen in
-the following plot in red
-
-``` r
-ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_Reserves_ActiveFishing, fill = "red")
-```
-
-![](README_files/figure-gfm/plotIntersection_Reserves_ActiveFishing_area-1.png)<!-- -->
-
-## Check intersection with IUCN Fredninger
-
-``` r
-ActiveFishing <- terra::vect("ActiveFishing.shp")
-IUCN <- as.polygons(IUCN) |> terra::disagg()
-Intersection_IUCN_ActiveFishing <- terra::intersect(IUCN,ActiveFishing)
-
-writeVector(Intersection_IUCN_ActiveFishing, "Intersection_IUCN_ActiveFishing.shp")
-
-Intersection_IUCN_ActiveFishing_area <- terra::expanse(Intersection_IUCN_ActiveFishing, unit = "km")
-```
-
-The total area of the intersection between ActiveFishing areas and IUCN
-Fredninger is 15.04 square kilometers, the area can be seen in the
-following plot in red
-
-``` r
-ggplot() + geom_spatvector(data = DenmarkEEZBoundary, fill = "blue") + geom_spatvector(data = Intersection_IUCN_ActiveFishing, fill = "red")
-```
-
-![](README_files/figure-gfm/plotIntersection_IUCN_ActiveFishing_area-1.png)<!-- -->
+Diagnostic plots and intersection checks are retained in the repository
+to support transparency and reproducibility of spatial results.
