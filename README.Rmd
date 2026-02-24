@@ -176,6 +176,10 @@ AddToN2000 <- terra::vect("Data/Fuglebeskyttelsesområde_i_Tyske_Bugt.shp") |>
   terra::project(terra::crs(N2000_reserves_sf))
 
 TotalN2000 <- terra::union(N2000_reserves_sf, AddToN2000)
+
+TotalN2000Rast <- terra::rasterize(TotalN2000, SeaTemplate)
+
+write_cog(TotalN2000Rast, "FinalLayers/TotalN2000.tif")
 ```
 
 These updates ensure that the spatial layers used in the analysis reflect the most recent protection designations included in the manuscript.
@@ -207,7 +211,7 @@ RasterizedPS <- AllMarineProtection |>
   terra::project(terra::crs(PSbinary)) |>
   terra::rasterize(PSbinary, field = 1, background = 0)
 
-write_cog(RasterizedPS, "PSbinary.tif")
+write_cog(RasterizedPS, "FinalLayers/PSbinary.tif")
 ```
 
 
@@ -338,46 +342,169 @@ ggplot() +
 
 # Area calculations for Fig. 2
 
-```{r areacalc, cache=TRUE}
-area_tbl <- terra::freq(Categories_final)
+This section computes the total area (km²) and share (% of the Danish EEZ) for each category in the final marine classification raster used in Fig. 2.
 
-area_tbl <- area_tbl |>
-  dplyr::mutate(
-    km2 = (count * 100) / 1000000,
-    percentage = (km2 / Area_DK_KM_Sea) * 100
-  ) |>
-  dplyr::select(-layer, -count)
+We calculate areas using a **cell-area weighted** approach (`terra::cellSize()`), which is robust to geographic projections and avoids relying on a fixed pixel area.
+
+```{r read_final_layer, include=FALSE}
+Categories_final <- terra::rast("FinalLayers/Marine_FinalLayer.tif")
+```
+
+```{r area_fig2, cache=TRUE, eval=FALSE}
+# Cell area (km²)
+cell_area <- terra::cellSize(Categories_final, unit = "km")
+
+# Zonal sum of cell areas per category
+area_tbl <- terra::zonal(cell_area, Categories_final, fun = "sum", na.rm = TRUE)
+colnames(area_tbl) <- c("Category", "area_km2")
+
+# Convert to percent of EEZ
+area_tbl$percent_of_eez <- (area_tbl$area_km2 / Area_DK_KM_Sea) * 100
+
+# Clean wrapped labels (if any)
+#area_tbl$Category <- gsub("\s*\n\s*", " ", area_tbl$Category)
+
+# Order by category id (if present)
+area_tbl <- area_tbl[order(area_tbl$Category), ]
+
+# Save for reuse
+openxlsx::write.xlsx(area_tbl, "FinalLayers/Area_Fig2.xlsx")
+readr::write_csv(area_tbl, "FinalLayers/Area_Fig2.csv")
+```
+
+```{r show_area_fig2, echo=FALSE}
+area_tbl <- readxl::read_xlsx("FinalLayers/Area_Fig2.xlsx")
+area_tbl |>
+  dplyr::mutate(dplyr::across(where(is.numeric), ~ round(.x, 2))) |>
+  knitr::kable(format = "pipe", align = "lrr")
 ```
 
 These values reproduce the proportions shown in Fig. 2 of the manuscript, with minor differences due to rounding.
 
+
+  
 # Generation of Table S3
+  
+Table S3 (Supplementary material) reports, for the Danish EEZ and for each marine protection scheme:
+  
+1. total area (km² and % of the EEZ), and
+2. the area and percentage that is **bottom‑trawled**.
 
-Table S3 summarises, for each marine protection scheme:
+In the manuscript, “bottom‑trawled” refers to areas subject to bottom‑towed fishing gear **more than once per five years** (beam trawling, bottom trawling, mussel dredging and demersal seine fishing).
 
-* total area within the Danish EEZ,
-* overlap with active fishing areas,
-* overlap with trawl‑free areas, and
-* contribution to fully protected marine area.
+Although polygon intersections (e.g. `terra::intersect()`) are useful diagnostics, Table S3 is best reproduced **directly on aligned rasters** (same resolution/extent as `SeaTemplate`). This avoids fragmentation effects and ensures the reported areas correspond to the raster workflow.
 
-These values are derived from spatial intersections between:
+## Inputs
 
-* updated protection scheme layers,
-* trawl‑free areas,
-* active fishing areas, and
-* reef areas effectively protected from bottom trawling.
+We compute Table S3 from:
+  
+* one raster per scheme (1 = inside scheme, 0 = outside), aligned to `SeaTemplate`, and
+* a bottom‑trawled raster (1/0), derived from `fishing_trawling_status.tif`.
 
-The intersection calculations included in this repository provide the quantitative basis for Table S3 and allow full reproducibility of the values reported in the manuscript.
+> In this repository, the bottom‑trawled indicator used for Table S3 is derived from `fishing_trawling_status.tif`. Categories **2** and **4** are treated as bottom‑trawled (> once per five years), regardless of whether trawling is legally permitted or prohibited.
 
+```{r s3_inputs, cache=TRUE, eval=FALSE}
+# --- Schemes (prefer saved layers in FinalLayers/ if present) ---
 
-# Reproducibility and consistency with terrestrial workflow
+# Natura 2000 (updated)
+PS_Natura2000 <- if (file.exists("FinalLayers/TotalN2000.tif")) {
+  terra::rast("FinalLayers/TotalN2000.tif")
+} else {
+  protection_schemes[["Natura2000"]]
+}
 
-This marine workflow is designed to mirror the terrestrial analysis presented in the companion repository to ensure:
+PS_Natura2000 <- terra::ifel(!is.na(PS_Natura2000) & PS_Natura2000 != 0, 1, 0)
+PS_Natura2000 <- terra::mask(PS_Natura2000, DenmarkEEZBoundary)
 
-* harmonised classification logic across terrestrial and marine realms,
-* consistent interpretation of criteria C1–C5,
-* transparent treatment of fishing pressure as a biodiversity‑compromising activity, and
-* full reproducibility of all figures and tables in the manuscript.
+# Marine Strategy area / Havstrategi (updated)
+PS_MarineStrategy <- if (file.exists("FinalLayers/TotalHavstrategi.tif")) {
+  terra::rast("FinalLayers/TotalHavstrategi.tif")
+} else {
+  protection_schemes[["Havstrategi_standard"]]
+}
 
-Diagnostic plots and intersection checks are retained in the repository to support transparency and reproducibility of spatial results.
+PS_MarineStrategy <- terra::ifel(!is.na(PS_MarineStrategy) & PS_MarineStrategy != 0, 1, 0)
+PS_MarineStrategy <- terra::mask(PS_MarineStrategy, DenmarkEEZBoundary)
 
+# Game reserves / wildlife reserves
+PS_GameReserves <- protection_schemes[["Wildlife_reserves"]]
+
+PS_GameReserves <- terra::ifel(!is.na(PS_GameReserves) & PS_GameReserves != 0, 1, 0)
+PS_GameReserves <- terra::mask(PS_GameReserves, DenmarkEEZBoundary)
+
+# Conservation orders / IUCN fredninger
+PS_ConservationOrders <- protection_schemes[["IUCN_Fredninger"]]
+
+PS_ConservationOrders <- terra::ifel(!is.na(PS_ConservationOrders) & PS_ConservationOrders != 0, 1, 0)
+PS_ConservationOrders <- terra::mask(PS_ConservationOrders, DenmarkEEZBoundary)
+
+# Total EEZ raster (1 everywhere inside EEZ)
+EEZ_r <- terra::ifel(!is.na(SeaTemplate), 1, 0)
+EEZ_r <- terra::mask(EEZ_r, DenmarkEEZBoundary)
+
+# --- Bottom-trawled raster (1/0) ---
+BottomTrawled <- terra::rast("Data/fishing_trawling_status.tif")
+BottomTrawled <- as.numeric(BottomTrawled)
+BottomTrawled <- terra::ifel(BottomTrawled %in% c(2, 4), 1, 0)
+
+BottomTrawled <- terra::mask(BottomTrawled, DenmarkEEZBoundary)
+BottomTrawled <- terra::ifel(is.na(BottomTrawled), 0, BottomTrawled)
+```
+
+## Helper to compute one Table S3 line
+
+```{r s3_helper, eval=FALSE}
+# Compute cell area ONCE
+cell_area <- terra::cellSize(SeaTemplate, unit = "km")
+
+make_S3_line_fast <- function(name, scheme_r, bottom_trawled_r, eez_km2 = Area_DK_KM_Sea) {
+
+  total_km2 <- terra::global(
+    terra::ifel(scheme_r == 1, cell_area, 0),
+    "sum", na.rm = TRUE
+  )[1, 1]
+
+  trawled_km2 <- terra::global(
+    terra::ifel(scheme_r == 1 & bottom_trawled_r == 1, cell_area, 0),
+    "sum", na.rm = TRUE
+  )[1, 1]
+
+  tibble::tibble(
+    Scheme = name,
+    Total_km2 = as.numeric(total_km2),
+    Total_of_EEZ_percent = (as.numeric(total_km2) / eez_km2) * 100,
+    Bottom_trawled_km2 = as.numeric(trawled_km2),
+    Bottom_trawled_of_scheme_percent =
+      ifelse(total_km2 > 0, (trawled_km2 / total_km2) * 100, NA_real_)
+  )
+}
+```
+
+## Assemble Table S3
+
+Schemes covering less than **0.05%** of the EEZ are excluded (as in the manuscript).
+
+```{r s3_assemble,  eval=FALSE}
+S3_tbl <- dplyr::bind_rows(
+  make_S3_line_fast("Total", EEZ_r, BottomTrawled),
+  make_S3_line_fast("Natura 2000", PS_Natura2000, BottomTrawled),
+  make_S3_line_fast("Conservation orders", PS_ConservationOrders, BottomTrawled),
+  make_S3_line_fast("Game reserves", PS_GameReserves, BottomTrawled),
+  make_S3_line_fast("Marine Strategy area", PS_MarineStrategy, BottomTrawled)
+)
+
+# Exclude schemes < 0.05% of EEZ (keep Total row)
+S3_tbl <- S3_tbl |>
+  dplyr::mutate(.keep = (Scheme == "Total") | (Total_of_EEZ_percent >= 0.05)) |>
+  dplyr::filter(.keep) |>
+  dplyr::select(-.keep)
+
+openxlsx::write.xlsx(S3_tbl, "FinalLayers/Table_S3.xlsx")
+readr::write_csv(S3_tbl, "FinalLayers/Table_S3.csv")
+```
+
+```{r s3_show, echo=FALSE}
+readxl::read_xlsx("FinalLayers/Table_S3.xlsx") |>
+  dplyr::mutate(dplyr::across(where(is.numeric), ~ round(.x, 2))) |>
+  knitr::kable(format = "pipe")
+```
