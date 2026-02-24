@@ -1,0 +1,59 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite it using the metadata in this CITATION.cff file."
+title: "Identifying the Marine Conservation Gap: Workflow and geospatial outcome for the Danish contribution to the 30% Target"
+authors:
+  - family-names: Corcoran
+    given-names: Derek
+    email: derek.corcoran@bio.au.dk
+    affiliation: "Secretariat of the Danish Biodiversity Council; Aarhus University (SustainScapes & Ecoinformatics and Biodiversity)"
+  - family-names: Pedersen
+    given-names: "Pil Birkefeldt Møller"
+    affiliation: "Secretariat of the Danish Biodiversity Council; Aarhus University (SustainScapes & Ecoinformatics and Biodiversity)"
+  - family-names: Petersen
+    given-names: "Anders H."
+    affiliation: "Secretariat of the Danish Biodiversity Council; University of Copenhagen (Center for Macroecology, Evolution and Climate)"
+  - family-names: Gammelgaard
+    given-names: Mads
+    affiliation: "Secretariat of the Danish Biodiversity Council"
+  - family-names: Madsen
+    given-names: Niels
+    affiliation: "The Danish Biodiversity Council; Aalborg University"
+  - family-names: Svenning
+    given-names: "Jens-Christian"
+    affiliation: "The Danish Biodiversity Council; Aarhus University (ECONOVO)"
+  - family-names: Timmermann
+    given-names: Karen
+    affiliation: "The Danish Biodiversity Council; Technical University of Denmark (DTU Aqua)"
+  - family-names: Kaae
+    given-names: "Berit C."
+    affiliation: "The Danish Biodiversity Council; University of Copenhagen (Geosciences and Natural Resource Management)"
+  - family-names: Kragh
+    given-names: Theis
+    affiliation: "The Danish Biodiversity Council; University of Southern Denmark"
+  - family-names: Olsen
+    given-names: "Birgitte Egelund"
+    affiliation: "The Danish Biodiversity Council; Aarhus University (Department of Law)"
+  - family-names: Strange
+    given-names: Niels
+    affiliation: "University of Copenhagen (CMEC & Department of Food and Resource Economics)"
+  - family-names: Rahbek
+    given-names: Carsten
+    affiliation: "University of Copenhagen (CMEC & Center for Global Mountain Biodiversity); The Danish Biodiversity Council; University of Southern Denmark"
+  - family-names: Normand
+    given-names: Signe
+    affiliation: "Aarhus University (SustainScapes & Ecoinformatics and Biodiversity); The Danish Biodiversity Council; University of Copenhagen (CGMB)"
+version: 1.0.0
+date-released: "2026-02-24"
+license: MIT
+repository-code: "https://github.com/Sustainscapes/MapsSeaAssesmentPA/" # Update if different
+type: dataset
+keywords:
+  - "marine protected areas"
+  - "30x30 target"
+  - "Denmark"
+  - "conservation gap analysis"
+  - "EU Biodiversity Strategy"
+  - "marine spatial planning"
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.FIXME # Replace with your Zenodo DOI once reserved
